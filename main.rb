@@ -1,0 +1,117 @@
+# require 'file'
+require 'pry'
+require 'rails'
+require 'sqlite3'
+require 'fileutils'
+def main
+  path = "G:\\En-En_Longman_DOCE5\\En-En-Longman_DOCE5.dsl\\En-En-Longman_DOCE5.dsl"
+  puts "---begin"
+  words = []
+  hash = {}
+  FileUtils.mv("longman.sqlite3", "longman.sqlite3.#{Time.now.to_i}.bak") if FileTest.exist?("longman.sqlite3")
+  db=SQLite3::Database.new("longman.sqlite3")
+  db.execute("create table longman (content, explanation)")
+  inserter=db.prepare("insert into longman (content,explanation) values (?,?)")
+  File.open path, "rb:UTF-16LE" do |io|
+    puts "---open file"
+    i = 0
+    # puts io
+
+    temp = ""
+    io.each_line do |line|
+      if line[0] != " " && line[0] != "\t"
+        inserter.execute(temp, hash[temp])
+        puts line
+        word = line.strip
+        words.push(word)
+        temp = word
+        hash[temp] = ""
+        i += 1
+        puts i.to_s+' '
+      else
+        hash[temp]+= line
+
+      end
+
+      # puts line
+      # i += 1
+      # break if i > 100
+
+    end
+    puts hash.count
+    # binding.pry
+  end
+  puts "---end"
+
+  File.open('longman.dump', 'wb') { |f| f.write(Marshal.dump(hash)) }
+
+end
+
+def collins3
+  path = "C:\\Users\\jiyuh\\Downloads\\word_list_of58.txt"
+  words = []
+  File.open path do |io|
+    i = 0
+
+    io.each_line do |line|
+      words.push line.strip
+      i += 1
+      # break if i > 100
+    end
+    # puts hash.count
+    # binding.pry
+    # puts words
+  end
+  str = words.join("\',\'")
+  File.open('words.txt', 'w') { |f| f.write("('"+str+"')") }
+end
+
+def audios
+  db=SQLite3::Database.new("longman.sqlite3")
+  FileUtils.mv("audio.sqlite3", "audio.sqlite3.#{Time.now.to_i}.bak") if FileTest.exist?("audio.sqlite3")
+  db2 =SQLite3::Database.new("audio.sqlite3")
+  db2.execute("create table audios (content, audio,collins, explanation)")
+  inserter=db2.prepare("insert into audios (content, audio,collins, explanation) values (?,?,?,?)")
+  hash = {}
+  db.execute( "select * from longman" ) do |row|
+    #binding.pry
+    word = row[0]
+    explanation = row[1]
+    collins = row[2]
+    # explanation.scan(/\[s\](.+?)\[\/s\]/)
+    if explanation.present?
+      explanation.each_line do |line|
+        if line.include?("[s]")
+          if line.include?("[lang ")
+            audio = line.scan(/\[s\](.+?)\[\/s\]/)[0]
+            lang = line.scan(/\[lang.+?\](.+?)\[\/lang\]/)[0]
+            hash[audio] = lang
+            inserter.execute(word, audio,collins, lang)
+          else
+            # audio = line.scan(/\[s\](.+?)\[\/s\]/)[0]
+            # lang = line.strip
+            # hash[audio] = lang
+            # inserter.execute(word, audio,collins, lang)
+            line.scan(/\[s\](.+?)\[\/s\]/).each do | audio |
+              lang = line.strip
+              hash[audio] = lang
+              inserter.execute(word, audio,collins, lang)
+            end
+
+
+          end
+        end
+      end
+    end
+
+  end
+  File.open('longman_audios.dump', 'wb') { |f| f.write(Marshal.dump(hash)) }
+end
+
+def play(audio)
+  wav_path = "G:\\En-En_Longman_DOCE5\\En-En-Longman_DOCE5.dsl.files\\#{audio}"
+  `.\\cmdmp3.exe #{wav_path}`
+end
+
+# main
+audios
