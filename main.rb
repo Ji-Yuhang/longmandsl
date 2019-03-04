@@ -3,6 +3,41 @@ require 'pry'
 require 'rails'
 require 'sqlite3'
 require 'fileutils'
+require "active_record"
+require 'bulk_insert'
+
+
+ActiveRecord::Base.establish_connection(
+  :adapter => "sqlite3",
+  :database  => "audio.sqlite3"
+)
+# FileUtils.mv("audio.sqlite3", "audio.sqlite3.#{Time.now.to_i}.bak") if FileTest.exist?("audio.sqlite3")
+
+# CREATE TABLE audios (content, audio,collins, explanation)
+ActiveRecord::Schema.define do
+  create_table :audios do |table|
+      table.column :collins, :integer
+      table.column :content, :string
+      table.column :audio, :string
+      table.column :explanation, :string
+  end
+
+  # create_table :tracks do |table|
+  #     table.column :album_id, :integer
+  #     table.column :track_number, :integer
+  #     table.column :title, :string
+  # end
+end
+
+class Audio < ActiveRecord::Base
+  self.table_name = "audios"
+
+  # has_many :tracks
+end
+puts "----------Audio.count: #{Audio.count}-------------------------------"
+puts Audio.count
+# puts Audio.all
+
 def main
   path = "G:\\En-En_Longman_DOCE5\\En-En-Longman_DOCE5.dsl\\En-En-Longman_DOCE5.dsl"
   puts "---begin"
@@ -68,42 +103,55 @@ end
 
 def audios
   db=SQLite3::Database.new("longman.sqlite3")
-  FileUtils.mv("audio.sqlite3", "audio.sqlite3.#{Time.now.to_i}.bak") if FileTest.exist?("audio.sqlite3")
-  db2 =SQLite3::Database.new("audio.sqlite3")
-  db2.execute("create table audios (content, audio,collins, explanation)")
-  inserter=db2.prepare("insert into audios (content, audio,collins, explanation) values (?,?,?,?)")
+  # FileUtils.mv("audio.sqlite3", "audio.sqlite3.#{Time.now.to_i}.bak") if FileTest.exist?("audio.sqlite3")
+  # Audio
+  # db2 =SQLite3::Database.new("audio.sqlite3")
+  # db2.execute("create table audios (content, audio,collins, explanation)")
+  # inserter=db2.prepare("insert into audios (content, audio,collins, explanation) values (?,?,?,?)")
   hash = {}
-  db.execute( "select * from longman" ) do |row|
-    #binding.pry
-    word = row[0]
-    explanation = row[1]
-    collins = row[2]
-    # explanation.scan(/\[s\](.+?)\[\/s\]/)
-    if explanation.present?
-      explanation.each_line do |line|
-        if line.include?("[s]")
-          if line.include?("[lang ")
-            audio = line.scan(/\[s\](.+?)\[\/s\]/)[0]
-            lang = line.scan(/\[lang.+?\](.+?)\[\/lang\]/)[0]
-            hash[audio] = lang
-            inserter.execute(word, audio,collins, lang)
-          else
-            # audio = line.scan(/\[s\](.+?)\[\/s\]/)[0]
-            # lang = line.strip
-            # hash[audio] = lang
-            # inserter.execute(word, audio,collins, lang)
-            line.scan(/\[s\](.+?)\[\/s\]/).each do | audio |
-              lang = line.strip
+  Audio.bulk_insert(set_size: 100) do |worker|
+
+    db.execute( "select * from longman" ) do |row|
+      #binding.pry
+      word = row[0]
+      explanation = row[1]
+      collins = row[2]
+      # explanation.scan(/\[s\](.+?)\[\/s\]/)
+      if explanation.present?
+        explanation.each_line do |line|
+          if line.include?("[s]")
+            if line.include?("[lang ")
+              audio = line.scan(/\[s\](.+?)\[\/s\]/)[0][0]
+              lang = line.scan(/\[lang.+?\](.+?)\[\/lang\]/)[0][0]
               hash[audio] = lang
-              inserter.execute(word, audio,collins, lang)
+              # puts "collins: collins, content: word, audio: audio, explanation: lang"
+              # puts "collins: #{collins}, content: #{word}, audio: #{audio}, explanation: #{lang}"
+              worker.add(collins: collins, content: word, audio: audio, explanation: lang)
+              # inserter.execute(word, audio,collins, lang)
+            else
+              # audio = line.scan(/\[s\](.+?)\[\/s\]/)[0]
+              # lang = line.strip
+              # hash[audio] = lang
+              # inserter.execute(word, audio,collins, lang)
+              # puts "collins: #{collins}, content: #{word}, audio: #{audio}, explanation: #{lang}"
+
+              line.scan(/\[s\](.+?)\[\/s\]/).each do | audio |
+                audio = audio.first
+                lang = line.strip
+                hash[audio] = lang
+                
+                # inserter.execute(word, audio,collins, lang)
+                worker.add(collins: collins, content: word, audio: audio, explanation: lang)
+
+              end
+
+
             end
-
-
           end
         end
       end
-    end
 
+    end
   end
   File.open('longman_audios.dump', 'wb') { |f| f.write(Marshal.dump(hash)) }
 end
